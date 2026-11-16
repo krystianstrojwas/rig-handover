@@ -1,0 +1,51 @@
+# Plan morning-digest § 3–4 (issues #6, #7). Saves /digest/2026-10-28 as one HTML file and
+# publishes it on this repo's GitHub Pages. The page is never committed (ADR 0003): it lives only
+# in the Pages deployment, so a re-run without the marker replaces it at the same link.
+name: preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      with_marker:
+        description: Show the lane marker (turn off for the clean-up, #7)
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable && pnpm install --no-frozen-lockfile
+      - name: Save the digest page
+        env:
+          # Secret LANE_MARKER holds the marker; empty when with_marker is off ("no marker set").
+          LANE_MARKER: ${{ inputs.with_marker && secrets.LANE_MARKER || '' }}
+          PORT: '8787'
+        run: |
+          pnpm start &
+          for i in $(seq 30); do curl -fs localhost:8787/health >/dev/null && break; sleep 1; done
+          mkdir -p _site
+          curl -fsS localhost:8787/digest/2026-10-28 -o _site/index.html
+          grep -q 'no marker set' _site/index.html && echo "marker: off" || echo "marker: on"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+          retention-days: 1
+      - id: deploy
+        uses: actions/deploy-pages@v4
